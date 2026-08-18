@@ -1,0 +1,50 @@
+services:
+  # The C++ Engine
+  proxy:
+    build: .
+    ports:
+      - "8080:8080/udp"
+    volumes:
+      - .:/app
+    working_dir: /app
+    networks:
+      game-network:
+        ipv4_address: 172.20.0.4
+    command: ["./cmake-build-debug/proxy"]
+
+  # The Python Databases
+  backend-1:
+    image: python:3.9-alpine
+    volumes:
+      - ./backend.py:/app/backend.py
+    working_dir: /app
+    command: ["python", "-u", "backend.py"]
+    networks:
+      game-network:
+        ipv4_address: 172.20.0.5
+
+  backend-2:
+    image: python:3.9-alpine
+    volumes:
+      - ./backend.py:/app/backend.py
+    working_dir: /app
+    command: ["python", "-u", "backend.py"]
+    networks:
+      game-network:
+        ipv4_address: 172.20.0.6
+
+  backend-3:
+    image: python:3.9-alpine
+    volumes:
+      - ./backend.py:/app/backend.py
+    working_dir: /app
+    command: ["python", "-u", "backend.py"]
+    networks:
+      game-network:
+        ipv4_address: 172.20.0.7
+
+networks:
+  game-network:
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
