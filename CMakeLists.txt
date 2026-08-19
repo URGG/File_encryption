@@ -17,6 +17,7 @@ add_executable(proxy src/main.cpp
         LoadBalancer.h
         AuditSigner.h
         src/AuditSigner.cpp
+
 )
 
 target_link_libraries(proxy PRIVATE OpenSSL::Crypto OpenSSL::SSL ${OPENSSL_LIBRARIES})
