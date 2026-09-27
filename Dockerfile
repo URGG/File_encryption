@@ -12,6 +12,7 @@ RUN apt-get update && apt-get install -y \
     rsync \
     tar \
     ninja-build \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+
 
 LABEL authors="georgeurgiles"

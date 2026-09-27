@@ -35,4 +35,6 @@ std::string AuditSigner::signPayload(const std::string& payload) {
 
     // Package the final secure payload
     return payload + " | SHA256_SIG: " + ss.str();
+
+    return payload + ss.str()
 }

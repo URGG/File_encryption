@@ -14,6 +14,7 @@ UDPSocket::UDPSocket(uint16_t port) {
     address.sin_addr.s_addr = INADDR_ANY;
     address.sin_port = htons(port);
 
+
     if (bind(sockfd, (const struct sockaddr *)&address, sizeof(address)) < 0) {
         close(sockfd);
         throw std::runtime_error("Bind failed: " + std::string(strerror(errno)));

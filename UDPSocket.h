@@ -16,13 +16,13 @@ private:
     struct sockaddr_in address;
 
 public:
-    // Constructor initializes and binds the port
+
     UDPSocket(uint16_t port);
 
 
     ~UDPSocket();
 
-    // Core functionality
+
     ssize_t receive(char* buffer, size_t max_len, struct sockaddr_in& client_addr);
     ssize_t sendTo(const char* buffer, size_t len, const struct sockaddr_in& target_addr);
 };

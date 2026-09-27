@@ -1,97 +1,75 @@
 import socket
 import psycopg2
-import time
-import requests
 import json
+import requests
+import time
 
-PORT = 9000
-# host.docker.internal routes the container traffic securely to your Mac's localhost
-OLLAMA_URL = "http://host.docker.internal:11434/api/generate"
-
-def get_db_connection():
-    return psycopg2.connect(
-        host="172.20.0.10",
-        database="auditdb",
-        user="postgres",
-        password="firm_password"
-    )
+# Internal Docker DNS for containerized Llama 3
+OLLAMA_URL = "http://ollama:11434/api/generate"
 
 def init_db():
-    while True:
-        try:
-            conn = get_db_connection()
-            cur = conn.cursor()
-            # Drop the old table so we can rebuild it with the new is_threat column
-            cur.execute('DROP TABLE IF EXISTS audit_logs')
-            cur.execute('''
-                        CREATE TABLE audit_logs (
-                                                    id SERIAL PRIMARY KEY,
-                                                    raw_payload TEXT,
-                                                    signature TEXT,
-                                                    is_threat BOOLEAN DEFAULT FALSE,
-                                                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                        )
-                        ''')
-            conn.commit()
-            cur.close()
-            conn.close()
-            print("[*] AI-Ready PostgreSQL Database Initialized")
-            break
-        except Exception:
-            time.sleep(2)
+    conn = psycopg2.connect(host="postgres_db", user="postgres", password="firm_password", dbname="auditdb")
+    cursor = conn.cursor()
+    cursor.execute("""
+                   CREATE TABLE IF NOT EXISTS legal_audits (
+                                                               id SERIAL PRIMARY KEY,
+                                                               case_id INT,
+                                                               raw_signature VARCHAR(255),
+                       sanitized_text TEXT,
+                       timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                       )
+                   """)
+    conn.commit()
+    return conn
 
-def analyze_threat(payload):
-    # Prompt Llama 3 to analyze the behavior
-    prompt = f"You are a cybersecurity SIEM system. Evaluate this database access event: {payload}. If the user ID is 994 and they are accessing CONFIDENTIAL case files, flag this as a potential data exfiltration anomaly. Reply strictly with the word YES or NO."
-
+def sanitize_document(payload):
+    prompt = f"You are a strict legal redaction engine. Read this raw case file: '{payload}'. Replace all names, phone numbers, and SSNs with [REDACTED_NAME], [REDACTED_PHONE], or [REDACTED_SSN]. Return ONLY the sanitized text, nothing else."
     try:
         response = requests.post(OLLAMA_URL, json={
             "model": "llama3",
             "prompt": prompt,
             "stream": False
-        }, timeout=15)
-
-        result = response.json().get("response", "").strip().upper()
-        print(f"[LLM ANALYSIS] Result: {result}")
-        return "YES" in result
+        }, timeout=120)
+        return response.json().get("response", "").strip()
+    except requests.exceptions.Timeout:
+        print("[LLM TIMEOUT] Skipping AI check.")
+        return "[SANITIZATION_FAILED_TIMEOUT]"
     except Exception as e:
-        print(f"[LLM TIMEOUT] Skipping AI check.")
-        return False
+        return f"[SANITIZATION_FAILED: {str(e)}]"
 
-def start_server():
-    init_db()
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.bind(('0.0.0.0', PORT))
-    print(f"[*] AI DB Worker active on port: {PORT}")
+conn = init_db()
+print("[*] AI-Ready PostgreSQL Database Initialized")
 
-    while True:
-        data, addr = sock.recvfrom(1024)
+sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+sock.bind(("0.0.0.0", 9000))
+print("[*] AI DB Worker active on port: 9000")
 
+while True:
+    data, addr = sock.recvfrom(4096)
+    msg = data.decode('utf-8')
+
+    # Immediately answer C++ health checks
+    if msg == "PING":
+        sock.sendto(b"PONG", addr)
+        continue
+
+    # Split the raw payload from the C++ OpenSSL signature
+    parts = msg.split("|||")
+    if len(parts) == 2:
+        raw_json, signature = parts
         try:
-            payload = data.decode('utf-8', errors='ignore').strip('\x00 \n\r\t')
+            parsed = json.loads(raw_json)
+            case_id = parsed.get("case_id", 0)
+            transcript = parsed.get("transcript", "")
 
-            if payload.upper().startswith("PING"):
-                sock.sendto(b"PONG", addr)
-            else:
-                parts = payload.split(" | SHA256_SIG: ")
-                json_part = parts[0]
-                sig_part = parts[1] if len(parts) > 1 else "N/A"
+            sanitized_text = sanitize_document(transcript)
+            print(f"[LLM ANALYSIS] Redacted result: {sanitized_text}")
 
-                # --- NEW: Run the payload through Llama 3 ---
-                is_anomalous = analyze_threat(json_part)
-
-                conn = get_db_connection()
-                cur = conn.cursor()
-                cur.execute(
-                    "INSERT INTO audit_logs (raw_payload, signature, is_threat) VALUES (%s, %s, %s)",
-                    (json_part, sig_part, is_anomalous)
-                )
-                conn.commit()
-                cur.close()
-                conn.close()
-
+            cursor = conn.cursor()
+            cursor.execute(
+                "INSERT INTO legal_audits (case_id, raw_signature, sanitized_text) VALUES (%s, %s, %s)",
+                (case_id, signature, sanitized_text)
+            )
+            conn.commit()
         except Exception as e:
-            pass
-
-if __name__ == "__main__":
-    start_server()
+            print(f"[DB ERROR] {e}")
