@@ -14,6 +14,7 @@ LoadBalancer::~LoadBalancer() {
     keep_running = false; // Signal the background thread to stop
     if (health_thread.joinable()) {
         health_thread.join(); // Wait for the thread to safely finish before destroying the object
+
     }
 }
 
